@@ -14,6 +14,7 @@ import com.arthenica.ffmpegkit.FFmpegSession
 import com.arthenica.ffmpegkit.Log
 import com.arthenica.ffmpegkit.ReturnCode
 import com.arthenica.ffmpegkit.Statistics
+import com.arthenica.ffmpegkit.StatisticsCallback
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
@@ -238,20 +239,22 @@ class AudioViewModel @Inject constructor(
                         val msg = log?.message ?: ""
                         parseDurationMs(msg)?.let { if (it > 0L) durationMs = it }
                     },
-                    { statistics: Statistics? ->
-                        val stat = statistics ?: return@StatisticsCallback
-                        val totalMs = durationMs.toDouble()
-                        val progress = if (totalMs > 0.0) {
-                            (statistics.time / totalMs).coerceIn(0.0, 1.0).toFloat()
-                        } else {
-                            0f
-                        }
-                        updateRecord(record.uid) { old ->
-                            old.copy(
-                                status = AudioStatus.CONVERTING,
-                                progress = progress,
-                                error = null
-                            )
+                    object : StatisticsCallback {
+                        override fun onStatistics(statistics: Statistics?) {
+                            val stat = statistics ?: return
+                            val totalMs = durationMs.toDouble()
+                            val progress = if (totalMs > 0.0) {
+                                (statistics.time / totalMs).coerceIn(0.0, 1.0).toFloat()
+                            } else {
+                                0f
+                            }
+                            updateRecord(record.uid) { old ->
+                                old.copy(
+                                    status = AudioStatus.CONVERTING,
+                                    progress = progress,
+                                    error = null
+                                )
+                            }
                         }
                     }
                 )
@@ -380,6 +383,6 @@ class AudioViewModel @Inject constructor(
         val moshi = Moshi.Builder()
             .add(KotlinJsonAdapterFactory())
             .build()
-        return moshi.adapter(type) as JsonAdapter<Map<String, SoundEntry>>
+        return moshi.adapter<Map<String, SoundEntry>>(type)
     }
 }
