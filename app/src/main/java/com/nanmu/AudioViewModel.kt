@@ -150,15 +150,35 @@ class AudioViewModel @Inject constructor(
     fun updateSoundId(uid: String, newId: String) {
         val cleanId = normalizeId(newId)
         if (cleanId.isBlank()) return
-        updateRecord(uid) { it.copy(soundId = cleanId) }
+        // 如果已转换，删除旧输出文件
+        val record = _records.value.find { it.uid == uid }
+        if (record?.status == AudioStatus.CONVERTED) {
+            record.outputFile?.delete()
+        }
+        updateRecord(uid) { old ->
+            old.copy(
+                soundId = cleanId,
+                outputFile = null,
+                status = if (old.status == AudioStatus.CONVERTED) AudioStatus.NOT_CONVERTED else old.status,
+                progress = 0f
+            )
+        }
     }
 
+    // 无参导出（默认值，兼容旧调用）
     fun exportResourcePack() {
+        exportResourcePack("我的MTR资源包", "1.0", 15)
+    }
+
+    // 带参数的导出
+    fun exportResourcePack(packName: String, packVersion: String, packFormat: Int = 15) {
         if (_isExporting.value) return
         viewModelScope.launch {
             _isExporting.value = true
             try {
-                val result = withContext(Dispatchers.IO) { createAndSavePack() }
+                val result = withContext(Dispatchers.IO) {
+                    createAndSavePack(packName, packVersion, packFormat)
+                }
                 _events.send("资源包已导出到 $result")
             } catch (t: Throwable) {
                 _events.send("导出失败：${t.message}")
@@ -276,7 +296,7 @@ class AudioViewModel @Inject constructor(
         return (hours * 3600 + minutes * 60) * 1000L + (seconds * 1000).toLong()
     }
 
-    private fun createAndSavePack(): String {
+    private fun createAndSavePack(packName: String, packVersion: String, packFormat: Int): String {
         val converted = _records.value.filter {
             it.status == AudioStatus.CONVERTED && it.outputFile?.exists() == true
         }
@@ -291,12 +311,14 @@ class AudioViewModel @Inject constructor(
         }
         val mtrAssetsDir = File(exportDir, "assets/mtr").apply { mkdirs() }
 
+        // 复制 OGG 文件
         converted.forEach { record ->
             val baseName = record.soundId
             val targetFile = File(mtrAssetsDir, "$baseName.ogg")
             record.outputFile?.copyTo(targetFile, overwrite = true)
         }
 
+        // 生成 sounds.json
         val soundMap = linkedMapOf<String, SoundEntry>()
         converted.forEach { record ->
             val baseName = record.soundId
@@ -304,7 +326,21 @@ class AudioViewModel @Inject constructor(
         }
         File(mtrAssetsDir, "sounds.json").writeText(soundMapAdapter.toJson(soundMap))
 
-        val zipFile = File(context.cacheDir, "nanmu_resource_pack_$timestamp.zip")
+        // 生成 pack.mcmeta
+        val packMcmeta = File(exportDir, "pack.mcmeta")
+        val description = packName.replace("\"", "\\\"")
+        val mcmetaContent = """{
+  "pack": {
+    "pack_format": $packFormat,
+    "description": "$description"
+  }
+}"""
+        packMcmeta.writeText(mcmetaContent)
+
+        // 打包 ZIP
+        val safeName = packName.replace(Regex("[^a-zA-Z0-9\\u4e00-\\u9fa5_-]"), "_")
+        val zipFileName = "${safeName}_v${packVersion}_$timestamp".replace(Regex("[^a-zA-Z0-9_.\\u4e00-\\u9fa5-]"), "_")
+        val zipFile = File(context.cacheDir, "$zipFileName.zip")
         writeZip(exportDir, zipFile)
         return saveToDownloads(zipFile)
     }

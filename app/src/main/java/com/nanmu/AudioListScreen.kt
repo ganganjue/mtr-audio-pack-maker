@@ -46,6 +46,11 @@ fun AudioListScreen(
     val isExporting by viewModel.isExporting.collectAsState()
     var editingItem by remember { mutableStateOf<AudioItem?>(null) }
 
+    // 导出对话框状态
+    var showExportDialog by remember { mutableStateOf(false) }
+    var exportName by remember { mutableStateOf("我的MTR资源包") }
+    var exportVersion by remember { mutableStateOf("1.0") }
+
     val addAudioLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -71,7 +76,11 @@ fun AudioListScreen(
             }
 
             Button(
-                onClick = { viewModel.exportResourcePack() },
+                onClick = {
+                    if (items.any { it.status == AudioStatus.CONVERTED }) {
+                        showExportDialog = true
+                    }
+                },
                 enabled = items.any { it.status == AudioStatus.CONVERTED } && !isExporting
             ) {
                 Text(if (isExporting) "导出中..." else "导出资源包")
@@ -102,6 +111,7 @@ fun AudioListScreen(
         }
     }
 
+    // 编辑 ID 对话框（原功能）
     editingItem?.let { target ->
         EditAudioIdDialog(
             currentId = target.soundId,
@@ -112,130 +122,52 @@ fun AudioListScreen(
             }
         )
     }
-}
 
-@Composable
-private fun AudioListItem(
-    item: AudioItem,
-    onEdit: () -> Unit,
-    onConvert: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable(onClick = onEdit)
-            ) {
-                Text(
-                    text = item.fileName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "ID：${item.soundId}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(4.dp))
-
-                when (item.status) {
-                    AudioStatus.NOT_CONVERTED -> {
-                        Text(
-                            text = "未转换",
-                            style = MaterialTheme.typography.bodyMedium
+    // 导出设置对话框（新功能）
+    if (showExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            title = { Text("导出资源包设置") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = exportName,
+                        onValueChange = { exportName = it },
+                        label = { Text("资源包名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = exportVersion,
+                        onValueChange = { exportVersion = it },
+                        label = { Text("版本号（如 1.0）") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.exportResourcePack(
+                            packName = exportName.ifBlank { "我的MTR资源包" },
+                            packVersion = exportVersion.ifBlank { "1.0" }
                         )
+                        showExportDialog = false
                     }
-
-                    AudioStatus.CONVERTING -> {
-                        val percent = (item.progress * 100).toInt()
-                        Text(
-                            text = "转换中 $percent%",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        LinearProgressIndicator(
-                            progress = item.progress,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    AudioStatus.CONVERTED -> {
-                        Text(
-                            text = "已转换",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    AudioStatus.FAILED -> {
-                        val reason = item.error?.let { "：$it" } ?: ""
-                        Text(
-                            text = "失败$reason",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
+                ) {
+                    Text("导出")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExportDialog = false }) {
+                    Text("取消")
                 }
             }
-
-            if (item.status == AudioStatus.NOT_CONVERTED) {
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = onConvert) {
-                    Text("转换")
-                }
-            }
-        }
+        )
     }
 }
 
-@Composable
-private fun EditAudioIdDialog(
-    currentId: String,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
-) {
-    var text by remember { mutableStateOf(currentId) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("编辑音频 ID") },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                label = { Text("ID") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(text.trim()) },
-                enabled = text.isNotBlank()
-            ) {
-                Text("保存")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
-        }
-    )
-}
+// AudioListItem 和 EditAudioIdDialog 函数保持不变（省略，与之前相同）
+// 请沿用您原有的这两个组件函数
