@@ -45,6 +45,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 
+    // 系统 UI 控制器（用于深色模式状态栏）
+    implementation("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
+
     // Hilt
     implementation("com.google.dagger:hilt-android:2.51.1")
     kapt("com.google.dagger:hilt-compiler:2.51.1")
@@ -52,7 +55,6 @@ dependencies {
 
     // FFmpegKit 社区维护版
     implementation("dev.ffmpegkit-maintained:ffmpeg-kit-audio:8.1.7")
-    // smart-exception-java（解决运行时 Failed resolution 错误）
     implementation("com.arthenica:smart-exception-java:0.2.1")
 
     // Moshi

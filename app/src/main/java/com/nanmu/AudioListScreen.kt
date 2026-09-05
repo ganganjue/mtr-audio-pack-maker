@@ -3,8 +3,11 @@ package com.nanmu
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,12 +21,20 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DismissDirection
+import androidx.compose.material3.DismissValue
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SwipeToDismiss
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDismissState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,6 +48,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 
+// 游戏版本映射表
+data class McVersion(val displayName: String, val packFormat: Int)
+
+val versions = listOf(
+    McVersion("1.20 - 1.20.1", 15),
+    McVersion("1.20.2", 18),
+    McVersion("1.20.3 - 1.20.4", 22),
+    McVersion("1.20.5 - 1.20.6", 32),
+    McVersion("1.21 - 1.21.1", 34),
+    McVersion("1.21.2 - 1.21.4", 40),
+    McVersion("1.21.5", 44)
+)
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun AudioListScreen(
     modifier: Modifier = Modifier,
@@ -44,19 +69,22 @@ fun AudioListScreen(
 ) {
     val items by viewModel.items.collectAsState()
     val isExporting by viewModel.isExporting.collectAsState()
+    val isBatchConverting by viewModel.isBatchConverting.collectAsState()
+
     var editingItem by remember { mutableStateOf<AudioItem?>(null) }
+    var deletingItem by remember { mutableStateOf<AudioItem?>(null) }
 
     // 导出对话框状态
     var showExportDialog by remember { mutableStateOf(false) }
     var exportName by remember { mutableStateOf("我的MTR资源包") }
     var exportVersion by remember { mutableStateOf("1.0") }
+    var selectedVersion by remember { mutableStateOf(versions.first()) }
+    var expanded by remember { mutableStateOf(false) }
 
     val addAudioLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.addAudio(uri)
-        }
+        uri?.let { viewModel.addAudio(it) }
     }
 
     Column(
@@ -64,6 +92,7 @@ fun AudioListScreen(
             .fillMaxSize()
             .padding(16.dp)
     ) {
+        // 顶部按钮行
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -73,6 +102,13 @@ fun AudioListScreen(
                 onClick = { addAudioLauncher.launch(arrayOf("audio/*")) }
             ) {
                 Text("添加音频")
+            }
+
+            OutlinedButton(
+                onClick = { viewModel.convertAll() },
+                enabled = items.any { it.status == AudioStatus.NOT_CONVERTED } && !isBatchConverting
+            ) {
+                Text(if (isBatchConverting) "批量转换中..." else "全部转换")
             }
 
             Button(
@@ -89,9 +125,10 @@ fun AudioListScreen(
 
         Spacer(Modifier.height(8.dp))
 
+        // 列表
         if (items.isEmpty()) {
             Text(
-                text = "尚未添加音频",
+                text = "尚未添加音频，点击「添加音频」导入文件",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 24.dp)
@@ -101,17 +138,77 @@ fun AudioListScreen(
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(items, key = { it.uid }) { item ->
-                    AudioListItem(
-                        item = item,
-                        onEdit = { editingItem = item },
-                        onConvert = { viewModel.convert(item.uid) }
+                    // 左滑删除
+                    val dismissState = rememberDismissState(
+                        confirmStateChange = { state ->
+                            if (state == DismissValue.DismissedToStart) {
+                                deletingItem = item
+                                true
+                            } else false
+                        }
+                    )
+
+                    SwipeToDismiss(
+                        state = dismissState,
+                        directions = setOf(DismissDirection.EndToStart),
+                        background = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(vertical = 4.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.error,
+                                        MaterialTheme.shapes.medium
+                                    ),
+                                contentAlignment = Alignment.CenterEnd
+                            ) {
+                                Text(
+                                    text = "删除",
+                                    color = MaterialTheme.colorScheme.onError,
+                                    modifier = Modifier.padding(end = 16.dp)
+                                )
+                            }
+                        },
+                        dismissContent = {
+                            AudioListItem(
+                                item = item,
+                                onEdit = { editingItem = item },
+                                onConvert = { viewModel.convert(item.uid) },
+                                onRetry = { viewModel.retry(item.uid) },
+                                onDelete = { deletingItem = item }
+                            )
+                        }
                     )
                 }
             }
         }
     }
 
-    // 编辑 ID 对话框（原功能）
+    // 删除确认对话框
+    if (deletingItem != null) {
+        AlertDialog(
+            onDismissRequest = { deletingItem = null },
+            title = { Text("确认删除") },
+            text = { Text("确定要删除「${deletingItem?.fileName}」吗？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deletingItem?.let { viewModel.deleteAudio(it.uid) }
+                        deletingItem = null
+                    }
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingItem = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    // 编辑 ID 对话框
     editingItem?.let { target ->
         EditAudioIdDialog(
             currentId = target.soundId,
@@ -123,7 +220,7 @@ fun AudioListScreen(
         )
     }
 
-    // 导出设置对话框（新功能）
+    // 导出设置对话框
     if (showExportDialog) {
         AlertDialog(
             onDismissRequest = { showExportDialog = false },
@@ -145,6 +242,57 @@ fun AudioListScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Spacer(Modifier.height(8.dp))
+
+                    // 游戏版本选择下拉菜单
+                    ExposedDropdownMenuBox(
+                        expanded = expanded,
+                        onExpandedChange = { expanded = it }
+                    ) {
+                        OutlinedTextField(
+                            value = selectedVersion.displayName,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Minecraft 版本") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth()
+                        )
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            versions.forEach { version ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(
+                                                text = version.displayName,
+                                                fontWeight = if (version == selectedVersion) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                            Text(
+                                                text = "pack_format: ${version.packFormat}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        selectedVersion = version
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "当前 pack_format = ${selectedVersion.packFormat}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
                 }
             },
             confirmButton = {
@@ -152,7 +300,8 @@ fun AudioListScreen(
                     onClick = {
                         viewModel.exportResourcePack(
                             packName = exportName.ifBlank { "我的MTR资源包" },
-                            packVersion = exportVersion.ifBlank { "1.0" }
+                            packVersion = exportVersion.ifBlank { "1.0" },
+                            packFormat = selectedVersion.packFormat
                         )
                         showExportDialog = false
                     }
@@ -169,13 +318,13 @@ fun AudioListScreen(
     }
 }
 
-// AudioListItem 和 EditAudioIdDialog 函数保持不变（省略，与之前相同）
-// 请沿用您原有的这两个组件函数
 @Composable
 private fun AudioListItem(
     item: AudioItem,
     onEdit: () -> Unit,
     onConvert: () -> Unit,
+    onRetry: () -> Unit,
+    onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -214,7 +363,8 @@ private fun AudioListItem(
                     AudioStatus.NOT_CONVERTED -> {
                         Text(
                             text = "未转换",
-                            style = MaterialTheme.typography.bodyMedium
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     AudioStatus.CONVERTING -> {
@@ -232,7 +382,7 @@ private fun AudioListItem(
                     }
                     AudioStatus.CONVERTED -> {
                         Text(
-                            text = "已转换",
+                            text = "✅ 已转换",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -240,7 +390,7 @@ private fun AudioListItem(
                     AudioStatus.FAILED -> {
                         val reason = item.error?.let { "：$it" } ?: ""
                         Text(
-                            text = "失败$reason",
+                            text = "❌ 失败$reason",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -248,17 +398,30 @@ private fun AudioListItem(
                 }
             }
 
-            if (item.status == AudioStatus.NOT_CONVERTED) {
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = onConvert) {
-                    Text("转换")
+            // 右侧操作按钮
+            when (item.status) {
+                AudioStatus.NOT_CONVERTED -> {
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = onConvert) {
+                        Text("转换")
+                    }
                 }
-            } else if (item.status == AudioStatus.CONVERTED) {
-                Text(
-                    text = "✓",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                AudioStatus.FAILED -> {
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = onRetry, colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )) {
+                        Text("重试")
+                    }
+                }
+                AudioStatus.CONVERTED -> {
+                    Text(
+                        text = "✓",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                else -> {}
             }
         }
     }

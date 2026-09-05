@@ -23,6 +23,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -90,10 +91,12 @@ class AudioViewModel @Inject constructor(
     private val _records = MutableStateFlow<List<AudioRecord>>(emptyList())
     private val _items = MutableStateFlow<List<AudioItem>>(emptyList())
     private val _isExporting = MutableStateFlow(false)
+    private val _isBatchConverting = MutableStateFlow(false)
     private val _events = Channel<String>(Channel.BUFFERED)
 
     val items: StateFlow<List<AudioItem>> = _items.asStateFlow()
     val isExporting: StateFlow<Boolean> = _isExporting.asStateFlow()
+    val isBatchConverting: StateFlow<Boolean> = _isBatchConverting.asStateFlow()
     val events = _events.receiveAsFlow()
 
     private val durationRegex = Regex("""Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)""")
@@ -102,17 +105,37 @@ class AudioViewModel @Inject constructor(
         refreshUi()
     }
 
+    // ============ 音频管理 ============
+
     fun addAudio(uri: Uri) {
         viewModelScope.launch {
             try {
                 val record = withContext(Dispatchers.IO) { importAudio(uri) }
                 _records.update { it + record }
                 refreshUi()
+                _events.send("已添加：${record.fileName}")
             } catch (t: Throwable) {
                 _events.send("添加音频失败：${t.message}")
             }
         }
     }
+
+    fun deleteAudio(uid: String) {
+        viewModelScope.launch {
+            val record = _records.value.find { it.uid == uid }
+            if (record != null) {
+                withContext(Dispatchers.IO) {
+                    record.inputFile.delete()
+                    record.outputFile?.delete()
+                }
+                _records.update { list -> list.filter { it.uid != uid } }
+                refreshUi()
+                _events.send("已删除：${record.fileName}")
+            }
+        }
+    }
+
+    // ============ 转换 ============
 
     fun convert(uid: String) {
         viewModelScope.launch {
@@ -135,6 +158,7 @@ class AudioViewModel @Inject constructor(
                         error = null
                     )
                 }
+                _events.send("转换完成：${current.fileName}")
             } catch (t: Throwable) {
                 updateRecord(uid) {
                     it.copy(
@@ -143,14 +167,61 @@ class AudioViewModel @Inject constructor(
                         error = t.message
                     )
                 }
+                _events.send("转换失败：${current.fileName} - ${t.message}")
             }
         }
     }
 
+    fun retry(uid: String) {
+        val record = _records.value.find { it.uid == uid }
+        if (record?.status == AudioStatus.FAILED) {
+            updateRecord(uid) {
+                it.copy(status = AudioStatus.NOT_CONVERTED, progress = 0f, error = null)
+            }
+            convert(uid)
+        }
+    }
+
+    fun convertAll() {
+        if (_isBatchConverting.value) return
+        viewModelScope.launch {
+            _isBatchConverting.value = true
+            val pending = _records.value.filter { it.status == AudioStatus.NOT_CONVERTED }
+            if (pending.isEmpty()) {
+                _events.send("没有待转换的音频")
+                _isBatchConverting.value = false
+                return@launch
+            }
+            _events.send("开始批量转换 ${pending.size} 个音频...")
+            var successCount = 0
+            var failCount = 0
+            for (record in pending) {
+                convert(record.uid)
+                // 等待转换完成（轮询状态变化）
+                var attempts = 0
+                while (attempts < 60) { // 最多等待30秒
+                    val current = _records.value.find { it.uid == record.uid }
+                    if (current?.status == AudioStatus.CONVERTED) {
+                        successCount++
+                        break
+                    } else if (current?.status == AudioStatus.FAILED) {
+                        failCount++
+                        break
+                    }
+                    delay(500)
+                    attempts++
+                }
+            }
+            _isBatchConverting.value = false
+            _events.send("批量转换完成：成功 $successCount，失败 $failCount")
+        }
+    }
+
+    // ============ ID 管理 ============
+
     fun updateSoundId(uid: String, newId: String) {
         val cleanId = normalizeId(newId)
         if (cleanId.isBlank()) return
-        // 如果已转换，删除旧输出文件
         val record = _records.value.find { it.uid == uid }
         if (record?.status == AudioStatus.CONVERTED) {
             record.outputFile?.delete()
@@ -165,12 +236,12 @@ class AudioViewModel @Inject constructor(
         }
     }
 
-    // 无参导出（默认值，兼容旧调用）
+    // ============ 导出 ============
+
     fun exportResourcePack() {
         exportResourcePack("我的MTR资源包", "1.0", 15)
     }
 
-    // 带参数的导出
     fun exportResourcePack(packName: String, packVersion: String, packFormat: Int = 15) {
         if (_isExporting.value) return
         viewModelScope.launch {
@@ -187,6 +258,8 @@ class AudioViewModel @Inject constructor(
             }
         }
     }
+
+    // ============ 私有方法 ============
 
     private fun importAudio(uri: Uri): AudioRecord {
         val fileName = queryDisplayName(uri) ?: "audio_${System.currentTimeMillis()}"
