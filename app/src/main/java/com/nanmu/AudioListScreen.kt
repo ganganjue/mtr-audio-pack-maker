@@ -32,9 +32,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextButtonDefaults
-import androidx.compose.material3.TextButtonDefaults
-import androidx.compose.material3.TextButtonDefaults
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -416,7 +416,7 @@ private fun AudioListItem(
             Spacer(Modifier.width(8.dp))
             TextButton(
                 onClick = onDelete,
-                colors = TextButtonDefaults.textButtonColors(
+                colors = ButtonDefaults.textButtonColors(
                     contentColor = MaterialTheme.colorScheme.error
                 )
             ) {
