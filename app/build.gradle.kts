@@ -50,8 +50,11 @@ dependencies {
     kapt("com.google.dagger:hilt-compiler:2.51.1")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
-    // FFmpegKit 社区维护版（API 完全兼容，无需修改 Kotlin 代码）
+    // FFmpegKit 社区维护版（包含 smart-exception-java 传递依赖）
     implementation("dev.ffmpegkit-maintained:ffmpeg-kit-audio:8.1.7")
+    
+    // 显式添加 smart-exception-java 解决运行时 "Failed resolution" 错误
+    implementation("com.arthenica:smart-exception-java:0.2.1")
 
     // Moshi
     implementation("com.squareup.moshi:moshi:1.15.1")
