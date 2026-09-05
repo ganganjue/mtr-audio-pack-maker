@@ -1,22 +1,12 @@
 package com.nanmu
 
-import androidx.compose.material3.DismissDirection
-import androidx.compose.material3.DismissValue
-import androidx.compose.material3.SwipeToDismiss
-import androidx.compose.material3.rememberDismissState
-
-import androidx.compose.foundation.background
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import android.net.Uri
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -29,21 +19,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.DismissDirection
-import androidx.compose.material3.DismissValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SwipeToDismiss
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDismissState
+import androidx.compose.material3.TextButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -56,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.launch
 
 // 游戏版本映射表
 data class McVersion(val displayName: String, val packFormat: Int)
@@ -70,7 +60,7 @@ val versions = listOf(
     McVersion("1.21.5", 44)
 )
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AudioListScreen(
     modifier: Modifier = Modifier,
@@ -79,6 +69,7 @@ fun AudioListScreen(
     val items by viewModel.items.collectAsState()
     val isExporting by viewModel.isExporting.collectAsState()
     val isBatchConverting by viewModel.isBatchConverting.collectAsState()
+    val scope = rememberCoroutineScope()
 
     var editingItem by remember { mutableStateOf<AudioItem?>(null) }
     var deletingItem by remember { mutableStateOf<AudioItem?>(null) }
@@ -89,6 +80,27 @@ fun AudioListScreen(
     var exportVersion by remember { mutableStateOf("1.0") }
     var selectedVersion by remember { mutableStateOf(versions.first()) }
     var expanded by remember { mutableStateOf(false) }
+
+    // 文件选择器（保存 ZIP 到用户选择的位置）
+    val saveFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    viewModel.exportResourcePackToUri(
+                        uri = uri,
+                        packName = exportName.ifBlank { "我的MTR资源包" },
+                        packVersion = exportVersion.ifBlank { "1.0" },
+                        packFormat = selectedVersion.packFormat
+                    )
+                    // 显示成功消息（可选）
+                } catch (e: Exception) {
+                    // 处理错误
+                }
+            }
+        }
+    }
 
     val addAudioLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -147,46 +159,12 @@ fun AudioListScreen(
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(items, key = { it.uid }) { item ->
-                    // 左滑删除
-                    val dismissState = rememberDismissState(
-                        confirmStateChange = { state ->
-                            if (state == DismissValue.DismissedToStart) {
-                                deletingItem = item
-                                true
-                            } else false
-                        }
-                    )
-
-                    SwipeToDismiss(
-                        state = dismissState,
-                        directions = setOf(DismissDirection.EndToStart),
-                        background = {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(vertical = 4.dp)
-                                    .background(
-                                        MaterialTheme.colorScheme.error,
-                                        MaterialTheme.shapes.medium
-                                    ),
-                                contentAlignment = Alignment.CenterEnd
-                            ) {
-                                Text(
-                                    text = "删除",
-                                    color = MaterialTheme.colorScheme.onError,
-                                    modifier = Modifier.padding(end = 16.dp)
-                                )
-                            }
-                        },
-                        dismissContent = {
-                            AudioListItem(
-                                item = item,
-                                onEdit = { editingItem = item },
-                                onConvert = { viewModel.convert(item.uid) },
-                                onRetry = { viewModel.retry(item.uid) },
-                                onDelete = { deletingItem = item }
-                            )
-                        }
+                    AudioListItem(
+                        item = item,
+                        onEdit = { editingItem = item },
+                        onConvert = { viewModel.convert(item.uid) },
+                        onRetry = { viewModel.retry(item.uid) },
+                        onDelete = { deletingItem = item }
                     )
                 }
             }
@@ -307,15 +285,14 @@ fun AudioListScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.exportResourcePack(
-                            packName = exportName.ifBlank { "我的MTR资源包" },
-                            packVersion = exportVersion.ifBlank { "1.0" },
-                            packFormat = selectedVersion.packFormat
-                        )
+                        // 先关闭对话框，然后启动文件选择器
                         showExportDialog = false
+                        // 生成文件名
+                        val fileName = "${exportName.ifBlank { "我的MTR资源包" }}_v${exportVersion.ifBlank { "1.0" }}.zip"
+                        saveFileLauncher.launch(fileName)
                     }
                 ) {
-                    Text("导出")
+                    Text("选择保存位置")
                 }
             },
             dismissButton = {
@@ -340,6 +317,7 @@ private fun AudioListItem(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
+            .clickable(onClick = onEdit)
     ) {
         Row(
             modifier = Modifier
@@ -348,9 +326,7 @@ private fun AudioListItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable(onClick = onEdit)
+                modifier = Modifier.weight(1f)
             ) {
                 Text(
                     text = item.fileName,
@@ -408,18 +384,20 @@ private fun AudioListItem(
             }
 
             // 右侧操作按钮
+            Spacer(Modifier.width(8.dp))
             when (item.status) {
                 AudioStatus.NOT_CONVERTED -> {
-                    Spacer(Modifier.width(8.dp))
                     Button(onClick = onConvert) {
                         Text("转换")
                     }
                 }
                 AudioStatus.FAILED -> {
-                    Spacer(Modifier.width(8.dp))
-                    Button(onClick = onRetry, colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )) {
+                    Button(
+                        onClick = onRetry,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
                         Text("重试")
                     }
                 }
@@ -431,6 +409,16 @@ private fun AudioListItem(
                     )
                 }
                 else -> {}
+            }
+            // 删除按钮
+            Spacer(Modifier.width(8.dp))
+            TextButton(
+                onClick = onDelete,
+                colors = TextButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text("✕")
             }
         }
     }

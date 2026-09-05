@@ -1,7 +1,6 @@
 package com.nanmu
 
 import android.content.ContentValues
-import kotlinx.coroutines.delay
 import android.content.Context
 import android.net.Uri
 import android.os.Build
@@ -198,9 +197,8 @@ class AudioViewModel @Inject constructor(
             var failCount = 0
             for (record in pending) {
                 convert(record.uid)
-                // 等待转换完成（轮询状态变化）
                 var attempts = 0
-                while (attempts < 60) { // 最多等待30秒
+                while (attempts < 60) {
                     val current = _records.value.find { it.uid == record.uid }
                     if (current?.status == AudioStatus.CONVERTED) {
                         successCount++
@@ -239,6 +237,7 @@ class AudioViewModel @Inject constructor(
 
     // ============ 导出 ============
 
+    // 旧的导出方法（保存到 Download，保留兼容）
     fun exportResourcePack() {
         exportResourcePack("我的MTR资源包", "1.0", 15)
     }
@@ -257,6 +256,24 @@ class AudioViewModel @Inject constructor(
             } finally {
                 _isExporting.value = false
             }
+        }
+    }
+
+    // 新方法：导出到用户选择的 Uri
+    suspend fun exportResourcePackToUri(
+        uri: Uri,
+        packName: String,
+        packVersion: String,
+        packFormat: Int
+    ) {
+        withContext(Dispatchers.IO) {
+            val zipFile = createPackToCache(packName, packVersion, packFormat)
+            context.contentResolver.openOutputStream(uri)?.use { output ->
+                zipFile.inputStream().use { input ->
+                    input.copyTo(output)
+                }
+            } ?: throw IOException("无法写入所选位置")
+            zipFile.delete()
         }
     }
 
@@ -370,7 +387,8 @@ class AudioViewModel @Inject constructor(
         return (hours * 3600 + minutes * 60) * 1000L + (seconds * 1000).toLong()
     }
 
-    private fun createAndSavePack(packName: String, packVersion: String, packFormat: Int): String {
+    // 生成到缓存，返回 File（不保存到 Download）
+    private fun createPackToCache(packName: String, packVersion: String, packFormat: Int): File {
         val converted = _records.value.filter {
             it.status == AudioStatus.CONVERTED && it.outputFile?.exists() == true
         }
@@ -385,14 +403,12 @@ class AudioViewModel @Inject constructor(
         }
         val mtrAssetsDir = File(exportDir, "assets/mtr").apply { mkdirs() }
 
-        // 复制 OGG 文件
         converted.forEach { record ->
             val baseName = record.soundId
             val targetFile = File(mtrAssetsDir, "$baseName.ogg")
             record.outputFile?.copyTo(targetFile, overwrite = true)
         }
 
-        // 生成 sounds.json
         val soundMap = linkedMapOf<String, SoundEntry>()
         converted.forEach { record ->
             val baseName = record.soundId
@@ -400,7 +416,6 @@ class AudioViewModel @Inject constructor(
         }
         File(mtrAssetsDir, "sounds.json").writeText(soundMapAdapter.toJson(soundMap))
 
-        // 生成 pack.mcmeta
         val packMcmeta = File(exportDir, "pack.mcmeta")
         val description = packName.replace("\"", "\\\"")
         val mcmetaContent = """{
@@ -411,11 +426,17 @@ class AudioViewModel @Inject constructor(
 }"""
         packMcmeta.writeText(mcmetaContent)
 
-        // 打包 ZIP
         val safeName = packName.replace(Regex("[^a-zA-Z0-9\\u4e00-\\u9fa5_-]"), "_")
         val zipFileName = "${safeName}_v${packVersion}_$timestamp".replace(Regex("[^a-zA-Z0-9_.\\u4e00-\\u9fa5-]"), "_")
         val zipFile = File(context.cacheDir, "$zipFileName.zip")
         writeZip(exportDir, zipFile)
+        exportDir.deleteRecursively()
+        return zipFile
+    }
+
+    // 旧的保存到 Download 的方法（调用 createPackToCache + 复制到 Download）
+    private fun createAndSavePack(packName: String, packVersion: String, packFormat: Int): String {
+        val zipFile = createPackToCache(packName, packVersion, packFormat)
         return saveToDownloads(zipFile)
     }
 
