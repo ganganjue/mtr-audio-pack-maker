@@ -11,7 +11,7 @@
 
 ## 2. 音频处理
 
-- 音频处理统一集成 **FFmpeg-Kit**。
+- 音频处理统一集成 **FFmpeg-Kit**。Maven社区版
 - 转换命令必须为：`-ac 1 -c:a libvorbis -q:a 4`
   - 含义：单声道（mono）+ libvorbis 编码 + 质量档 4，输出 **单声道 OGG** 格式。
 

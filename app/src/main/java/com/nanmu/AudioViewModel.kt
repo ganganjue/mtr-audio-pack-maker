@@ -10,18 +10,26 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.arthenica.ffmpegkit.FFmpegKit
-import com.arthenica.ffmpegkit.FFmpegSessionCompleteCallback
+import com.arthenica.ffmpegkit.FFmpegSession
 import com.arthenica.ffmpegkit.Log
-import com.arthenica.ffmpegkit.LogCallback
 import com.arthenica.ffmpegkit.ReturnCode
 import com.arthenica.ffmpegkit.Statistics
-import com.arthenica.ffmpegkit.StatisticsCallback
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -33,16 +41,6 @@ import java.util.zip.ZipOutputStream
 import javax.inject.Inject
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.receiveAsFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
 
 enum class AudioStatus {
     NOT_CONVERTED,
@@ -97,7 +95,7 @@ class AudioViewModel @Inject constructor(
     val isExporting: StateFlow<Boolean> = _isExporting.asStateFlow()
     val events = _events.receiveAsFlow()
 
-    private val durationRegex = Regex("""Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)""")
+    private val durationRegex = Regex("""Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)""")
 
     init {
         refreshUi()
@@ -213,9 +211,8 @@ class AudioViewModel @Inject constructor(
         val outputFile = File(outputDir, "${record.soundId}.ogg")
         outputFile.delete()
 
-        // 转换命令：-i 输入 -ac 1 -c:a libvorbis -q:a 4 -y 输出.ogg
         val command = "-i ${record.inputFile.absolutePath} " +
-            "-ac 1 -c:a libvorbis -q:a 4 -y ${outputFile.absolutePath}"
+                "-ac 1 -c:a libvorbis -q:a 4 -y ${outputFile.absolutePath}"
 
         return suspendCancellableCoroutine { continuation ->
             var durationMs = 0L
@@ -223,8 +220,8 @@ class AudioViewModel @Inject constructor(
             try {
                 val session = FFmpegKit.executeAsync(
                     command,
-                    FFmpegSessionCompleteCallback { session ->
-                        if (ReturnCode.isSuccess(session.returnCode)) {
+                    { session: FFmpegSession? ->
+                        if (session != null && ReturnCode.isSuccess(session.returnCode)) {
                             if (outputFile.exists()) {
                                 continuation.resume(outputFile)
                             } else {
@@ -233,22 +230,19 @@ class AudioViewModel @Inject constructor(
                                 )
                             }
                         } else {
-                            continuation.resumeWithException(
-                                IOException(session.failStackTrace ?: "FFmpeg 转换失败")
-                            )
+                            val error = session?.failStackTrace ?: "FFmpeg 转换失败"
+                            continuation.resumeWithException(IOException(error))
                         }
                     },
-                    LogCallback { log ->
-                        val text = log.text
-                        if (!text.isNullOrBlank()) {
-                            parseDurationMs(text)?.let { if (it > 0L) durationMs = it }
-                        }
+                    { log: Log? ->
+                        val msg = log?.message ?: ""
+                        parseDurationMs(msg)?.let { if (it > 0L) durationMs = it }
                     },
-                    StatisticsCallback { statistics ->
-                        val totalMs = durationMs.toFloat()
-                        val progress = if (totalMs > 0f) {
-                            (statistics.time.coerceAtLeast(0).toFloat() / totalMs)
-                                .coerceIn(0f, 1f)
+                    { statistics: Statistics? ->
+                        val stat = statistics ?: return@StatisticsCallback
+                        val totalMs = durationMs.toDouble()
+                        val progress = if (totalMs > 0.0) {
+                            (statistics.time / totalMs).coerceIn(0.0, 1.0).toFloat()
                         } else {
                             0f
                         }
