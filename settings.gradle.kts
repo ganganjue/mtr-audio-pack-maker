@@ -9,7 +9,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // 添加 FFmpegKit 官方仓库
         maven { url = uri("https://arthenica.github.io/ffmpeg-kit/repository") }
     }
 }
