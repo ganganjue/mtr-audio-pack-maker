@@ -171,3 +171,131 @@ fun AudioListScreen(
 
 // AudioListItem 和 EditAudioIdDialog 函数保持不变（省略，与之前相同）
 // 请沿用您原有的这两个组件函数
+@Composable
+private fun AudioListItem(
+    item: AudioItem,
+    onEdit: () -> Unit,
+    onConvert: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(onClick = onEdit)
+            ) {
+                Text(
+                    text = item.fileName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "ID：${item.soundId}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(4.dp))
+
+                when (item.status) {
+                    AudioStatus.NOT_CONVERTED -> {
+                        Text(
+                            text = "未转换",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    AudioStatus.CONVERTING -> {
+                        val percent = (item.progress * 100).toInt()
+                        Text(
+                            text = "转换中 $percent%",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        LinearProgressIndicator(
+                            progress = item.progress,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    AudioStatus.CONVERTED -> {
+                        Text(
+                            text = "已转换",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    AudioStatus.FAILED -> {
+                        val reason = item.error?.let { "：$it" } ?: ""
+                        Text(
+                            text = "失败$reason",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+
+            if (item.status == AudioStatus.NOT_CONVERTED) {
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = onConvert) {
+                    Text("转换")
+                }
+            } else if (item.status == AudioStatus.CONVERTED) {
+                Text(
+                    text = "✓",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditAudioIdDialog(
+    currentId: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var text by remember { mutableStateOf(currentId) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("编辑音频 ID") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("ID（如 my_door）") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(text.trim()) },
+                enabled = text.isNotBlank()
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
+}
