@@ -32,8 +32,6 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-        // 如果 Kotlin 版本与 Compose 编译器版本不匹配，可以取消注释下面一行
-        // suppressKotlinVersionCompatibilityCheck = true
     }
 }
 
@@ -52,8 +50,8 @@ dependencies {
     kapt("com.google.dagger:hilt-compiler:2.51.1")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
-    // FFmpegKit (通过 JitPack 获取)
-    implementation("com.github.arthenica:ffmpeg-kit-audio:6.0-2")
+    // FFmpegKit 社区维护版（API 完全兼容，无需修改 Kotlin 代码）
+    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-audio:8.1.7")
 
     // Moshi
     implementation("com.squareup.moshi:moshi:1.15.1")
