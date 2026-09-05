@@ -240,7 +240,7 @@ class AudioViewModel @Inject constructor(
                         parseDurationMs(msg)?.let { if (it > 0L) durationMs = it }
                     },
                     object : StatisticsCallback {
-                        override fun onStatistics(statistics: Statistics?) {
+                        override fun apply(statistics: Statistics?) {
                             val stat = statistics ?: return
                             val totalMs = durationMs.toDouble()
                             val progress = if (totalMs > 0.0) {
