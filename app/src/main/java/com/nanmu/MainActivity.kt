@@ -2,6 +2,7 @@ package com.nanmu
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.Composable
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
